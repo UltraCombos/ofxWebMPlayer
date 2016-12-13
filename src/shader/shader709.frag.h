@@ -1,5 +1,4 @@
 static char const* g_cstr_frag_shader709 = R"(
-
 #version 150
 
 in vec4 pixel_coord;
@@ -52,5 +51,4 @@ void main()
 	
 	outputColor = vec4(rgb.xyz, alpha);
 }
-
 )";
