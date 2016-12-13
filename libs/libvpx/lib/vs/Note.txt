@@ -1,0 +1,5 @@
+Compiled Date: 2016/11/21 (Git From)
+Compiled VS: Visual Studio 14 2015
+Runtime Lib: MD (Multi-Threaded DLL)
+
+For Openframeworks
