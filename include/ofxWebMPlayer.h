@@ -86,6 +86,9 @@ public:
 
 	//-------------------------------------------------------
 
+	bool getKeyFrames(std::vector<unsigned int>*);
+	void forceUpdate();
+
 #if defined(USE_OFXWEBMPLAYER_QA_FEATURE)
 	QaInfo const& getQaInfo() const;
 
@@ -103,7 +106,9 @@ private:
 	ofShader	m_shader;
 	ofFbo		m_fbo;
 	bool		m_is_paused;
+	bool		m_is_playing;
 	bool		m_is_frame_new;
+	bool		m_is_loop;
 	char		m_mov_info_instance[MaxMovInfoInsSize];
 
 #if defined(USE_OFXWEBMPLAYER_QA_FEATURE)
@@ -114,6 +119,8 @@ private:
 	void mf_convert_vpx_img_to_texture(void*);
 	void mf_get_frame();
 	void mf_unload();
+	void mf_update(unsigned long long delta_millis);
+	float mf_set_key_frame(unsigned int frame_idx);
 };
 
 #if defined(USE_OFXWEBMPLAYER_QA_FEATURE)

@@ -21,7 +21,7 @@ typedef struct VpxFrameInfo
 struct ofxWebMPlayer::VpxMovInfo
 {
 	f32 frame_rate;
-	f32 duration;
+	f32 duration_s;
 	u32 frame_count;
 	u32 ms_per_frame;
 	//u32 length;
@@ -34,13 +34,14 @@ struct ofxWebMPlayer::VpxMovInfo
 	f32 planes_height[4];
 	f32 chroma_shift[2];
 
+	vpx_codec_dec_cfg	vpx_cfg;
 	vpx_codec_ctx_t     vpx_ctx;
 	vpx_codec_iface_t*  vpx_if;
-	int                 vpx_flags;
+	s32                 vpx_flags;
 
-	u32 bgn_tick_millis;
-	u32 pauTickMillis;
-	s32 curMovFrameIdx;
+	u64 pre_tick_millis;
+	u64 total_tick_mills;
+	s32 cur_mov_frame_idx;
 
 	std::vector<VpxFrameInfo>	box_vpx_frame_info;
 	std::vector<u32>			box_key;
@@ -154,14 +155,13 @@ bool ofxWebMPlayer::load(string name)
 					continue;
 				}
 
-				s32 flags = 0;
+				m_vpx_mov_info->vpx_flags = 0;
 				// Initialize codec
-				vpx_codec_dec_cfg cfg;
-				cfg.threads = 8;
-				cfg.w = 0;
-				cfg.h = 0;
+				m_vpx_mov_info->vpx_cfg.threads = 8;
+				m_vpx_mov_info->vpx_cfg.w = 0;
+				m_vpx_mov_info->vpx_cfg.h = 0;
 
-				vpx_codec_err_t err = vpx_codec_dec_init(&m_vpx_mov_info->vpx_ctx, p_iface, &cfg, flags);
+				vpx_codec_err_t err = vpx_codec_dec_init(&m_vpx_mov_info->vpx_ctx, p_iface, &m_vpx_mov_info->vpx_cfg, m_vpx_mov_info->vpx_flags);
 				if (err)
 				{
 					gf_trace_codec_error(&m_vpx_mov_info->vpx_ctx, "ofxWebMPlayer::load(): Failed to initialize the decoder of VPX.");
@@ -169,7 +169,6 @@ bool ofxWebMPlayer::load(string name)
 				}
 
 				m_vpx_mov_info->vpx_if = p_iface;
-				m_vpx_mov_info->vpx_flags = flags;
 
 				ofLogNotice("ofxWebMPlayer::load(): Now vpx codec is using %s.", vpx_codec_iface_name(m_vpx_mov_info->vpx_if));
 
@@ -235,13 +234,13 @@ bool ofxWebMPlayer::load(string name)
 					////u64 const timeCodeScale = pSegmentInfo->GetTimeCodeScale();
 					//u64 const duration_ns = pSegmentInfo->GetDuration();
 					m_vpx_mov_info->ms_per_frame = duration_ns_per_frame / 1000000;
-					m_vpx_mov_info->duration = static_cast<f32>(duration_ns_per_frame / 1000000000.0) * m_vpx_mov_info->frame_count;
-					m_vpx_mov_info->frame_rate = m_vpx_mov_info->frame_count / m_vpx_mov_info->duration;
+					m_vpx_mov_info->duration_s = static_cast<f32>(duration_ns_per_frame / 1000000000.0) * m_vpx_mov_info->frame_count;
+					m_vpx_mov_info->frame_rate = m_vpx_mov_info->frame_count / m_vpx_mov_info->duration_s;
 				}
 				else if (m_vpx_mov_info->frame_rate)
 				{
 					m_vpx_mov_info->ms_per_frame = 1000000000.0 / m_vpx_mov_info->frame_rate;
-					m_vpx_mov_info->duration = m_vpx_mov_info->frame_count / m_vpx_mov_info->frame_rate;
+					m_vpx_mov_info->duration_s = m_vpx_mov_info->frame_count / m_vpx_mov_info->frame_rate;
 				}
 				else
 				{
@@ -249,9 +248,9 @@ bool ofxWebMPlayer::load(string name)
 					u64 const duration_ns = pSegmentInfo->GetDuration();
 					duration_ns_per_frame = duration_ns / m_vpx_mov_info->frame_count;
 
-					m_vpx_mov_info->duration = static_cast<f32>(duration_ns / 1000000000.0);
+					m_vpx_mov_info->duration_s = static_cast<f32>(duration_ns / 1000000000.0);
 					m_vpx_mov_info->ms_per_frame = duration_ns_per_frame / 1000000;
-					m_vpx_mov_info->frame_rate = m_vpx_mov_info->frame_count / m_vpx_mov_info->duration;
+					m_vpx_mov_info->frame_rate = m_vpx_mov_info->frame_count / m_vpx_mov_info->duration_s;
 				}
 			}
 			break;
@@ -278,7 +277,9 @@ bool ofxWebMPlayer::load(string name)
 		}
 
 		m_vpx_mov_info->sp_mb_movie_body = reader.GetMemBlockSptr();
-		m_vpx_mov_info->curMovFrameIdx = 0;
+		m_vpx_mov_info->cur_mov_frame_idx = 0;
+		m_vpx_mov_info->pre_tick_millis = 0;
+		m_vpx_mov_info->total_tick_mills = 0;
 
 		VpxFrameInfo& f_info = m_vpx_mov_info->box_vpx_frame_info[0];
 		ret = vpx_codec_decode(&m_vpx_mov_info->vpx_ctx, m_vpx_mov_info->sp_mb_movie_body->get_buffer() + f_info.pos, f_info.len, NULL, 0);
@@ -402,7 +403,6 @@ bool ofxWebMPlayer::load(string name)
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		}
 
-
 		glBindTexture(GL_TEXTURE_2D, 0);
 		glDisable(GL_TEXTURE_2D);
 
@@ -464,13 +464,23 @@ void ofxWebMPlayer::loadAsync(string name)
 
 void ofxWebMPlayer::play()
 {
-	m_vpx_mov_info->bgn_tick_millis = ofGetElapsedTimeMillis();
-	//m_vpx_mov_info->curMovFrameIdx = 0;
+	if (!m_is_playing)
+	{
+		m_vpx_mov_info->total_tick_mills = 0;
+		if (m_vpx_mov_info->cur_mov_frame_idx == m_vpx_mov_info->frame_count - 1)
+		{
+			m_vpx_mov_info->cur_mov_frame_idx = -1;
+		}
+	}
+
+	m_is_playing = true;
+	m_is_paused = false;
+	m_vpx_mov_info->pre_tick_millis = ofGetElapsedTimeMillis();
 }
 
 void ofxWebMPlayer::stop()
 {
-
+	m_is_playing = false;
 }
 
 ofTexture* ofxWebMPlayer::getTexturePtr()
@@ -500,7 +510,7 @@ float ofxWebMPlayer::getHeight() const
 
 bool ofxWebMPlayer::isPaused() const
 {
-	return false;
+	return m_is_paused;
 }
 
 bool ofxWebMPlayer::isLoaded() const
@@ -510,17 +520,22 @@ bool ofxWebMPlayer::isLoaded() const
 
 bool ofxWebMPlayer::isPlaying() const
 {
-	return false;
+	return m_is_playing;
 }
 
 float ofxWebMPlayer::getPosition() const
 {
-	return 0.f;
+	if (!isLoaded())
+	{
+		return 0.f;
+	}
+
+	return m_vpx_mov_info->total_tick_mills / (m_vpx_mov_info->duration_s * 1000.f);
 }
 
 float ofxWebMPlayer::getSpeed() const
 {
-	return 0.f;
+	return 1.f;
 }
 
 float ofxWebMPlayer::getDuration() const
@@ -530,41 +545,102 @@ float ofxWebMPlayer::getDuration() const
 		return 0.f;
 	}
 
-	return m_vpx_mov_info->duration;
+	return m_vpx_mov_info->duration_s;
 }
 
 bool ofxWebMPlayer::getIsMovieDone() const
 {
-	return false;
+	return !m_is_playing;
 }
 
 void ofxWebMPlayer::setPaused(bool bPause)
 {
-
+	m_is_paused = bPause;
 }
 
 void ofxWebMPlayer::setPosition(float pct)
 {
+	if (!isLoaded())
+	{
+		return;
+	}
 
+	pct = ofClamp(pct, 0.f, 1.f);
+	u32 frame_idx = static_cast<u32>((m_vpx_mov_info->frame_count - 1) * pct);
+	if (frame_idx == m_vpx_mov_info->cur_mov_frame_idx)
+	{
+		return;
+	}
+
+	VpxFrameInfo& cur_frame_info = m_vpx_mov_info->box_vpx_frame_info[m_vpx_mov_info->cur_mov_frame_idx];
+	VpxFrameInfo& nxt_frame_info = m_vpx_mov_info->box_vpx_frame_info[frame_idx];
+
+	if (m_vpx_mov_info->cur_mov_frame_idx > frame_idx || 
+		cur_frame_info.idx_key != nxt_frame_info.idx_key)
+	{
+		m_vpx_mov_info->cur_mov_frame_idx = frame_idx;
+		f32 time_s = mf_set_key_frame(frame_idx);
+	}
+
+	m_vpx_mov_info->pre_tick_millis = ofGetElapsedTimeMillis();
+	m_vpx_mov_info->total_tick_mills = static_cast<u64>(m_vpx_mov_info->duration_s * 1000.f * pct);
 }
 
 void ofxWebMPlayer::setVolume(float volume)
 {
-
+	return;
 }
+
 void ofxWebMPlayer::setLoopState(ofLoopType state)
 {
-
+	switch (state)
+	{
+	default:
+	case OF_LOOP_NONE:
+		m_is_loop = false;
+		break;
+	case OF_LOOP_PALINDROME:
+	case OF_LOOP_NORMAL:
+		m_is_loop = true;
+		break;
+	}
 }
 
 void ofxWebMPlayer::setSpeed(float speed)
 {
-
+	return;
 }
 
 void ofxWebMPlayer::setFrame(int frame)
 {
-
+	//if (!isLoaded())
+	//{
+	//	return;
+	//}
+	//
+	//size_t total_frames = m_vpx_mov_info->box_vpx_frame_info.size();
+	//if (frame < 0)
+	//{
+	//	frame = 0;
+	//}
+	//else if (frame > total_frames)
+	//{
+	//	frame = static_cast<int>(total_frames - 1);
+	//}
+	//u32 frame_idx = frame;
+	//if (frame_idx == m_vpx_mov_info->cur_mov_frame_idx)
+	//{
+	//	return;
+	//}
+	//
+	//f32 time_s = mf_set_key_frame(frame);
+	//if (time_s < 0.f)
+	//{
+	//	return;
+	//}
+	//
+	//m_vpx_mov_info->pre_tick_millis = ofGetElapsedTimeMillis();
+	//m_vpx_mov_info->total_tick_mills = static_cast<u64>(time_s * 1000.f);
 }
 
 int ofxWebMPlayer::getCurrentFrame() const
@@ -574,7 +650,7 @@ int ofxWebMPlayer::getCurrentFrame() const
 		return -1;
 	}
 
-	return m_vpx_mov_info->curMovFrameIdx;
+	return m_vpx_mov_info->cur_mov_frame_idx;
 }
 
 int	ofxWebMPlayer::getTotalNumFrames() const
@@ -589,12 +665,12 @@ int	ofxWebMPlayer::getTotalNumFrames() const
 
 ofLoopType ofxWebMPlayer::getLoopState() const
 {
-	return OF_LOOP_NONE;
+	return m_is_loop? OF_LOOP_NORMAL: OF_LOOP_NONE;
 }
 
 void ofxWebMPlayer::firstFrame()
 {
-
+	setFrame(0);
 }
 
 void ofxWebMPlayer::nextFrame()
@@ -607,46 +683,83 @@ void ofxWebMPlayer::previousFrame()
 
 }
 
-//////////////////////////////////////
-void ofxWebMPlayer::update()
-{
-	u32 frameIdx = 0;
+float ofxWebMPlayer::mf_set_key_frame(u32 frame_idx)
+{	
+	//VpxFrameInfo& fInfo = m_vpx_mov_info->box_vpx_frame_info[frame_idx];
 
-	u64 curTickMillis = ofGetElapsedTimeMillis();
-	f32 playTime = (m_is_paused ? (m_vpx_mov_info->pauTickMillis - m_vpx_mov_info->bgn_tick_millis) : (curTickMillis - m_vpx_mov_info->bgn_tick_millis)) / 1000.f;
-
-	frameIdx = (u32)(playTime * m_vpx_mov_info->frame_rate);
-	if (frameIdx >= m_vpx_mov_info->box_vpx_frame_info.size())
+	if (m_vpx_mov_info->vpx_if == vpx_codec_vp8_dx())
 	{
-		//if (m_vpx_mov_info->isLoop)
-		//{
-		//	vpxMovInfo.curMovFrameIdx = -1;
-		//	vpxMovInfo.bgnTickMillis = curTickMillis;
-		//	frameIdx = 0;
-		//}
-		//else //is Over//
-		//{
-		//	return false;
-		//
-		//}
-		return;
+		if (vpx_codec_destroy(&m_vpx_mov_info->vpx_ctx))
+		{
+			gf_trace_codec_error(&m_vpx_mov_info->vpx_ctx, "ofxWebMPlayer::mf_set_frame(): Failed to destroy the decoder of VPX");
+			return -1.f;
+		}
+		else
+		{
+			// Initialize codec
+			if (vpx_codec_dec_init(&m_vpx_mov_info->vpx_ctx, m_vpx_mov_info->vpx_if, &m_vpx_mov_info->vpx_cfg, m_vpx_mov_info->vpx_flags))
+			{
+				gf_trace_codec_error(&m_vpx_mov_info->vpx_ctx, "ofxWebMPlayer::mf_set_frame(): Failed to initialize the decoder of VPX");
+				return -1.f;
+			}
+		}
 	}
 
-	if (m_vpx_mov_info->curMovFrameIdx == frameIdx)
+	VpxFrameInfo& fInfo = m_vpx_mov_info->box_vpx_frame_info[frame_idx];
+	m_vpx_mov_info->cur_mov_frame_idx = fInfo.idx_key;
+	f32 time_s = frame_idx / m_vpx_mov_info->frame_rate;
+
+	VpxFrameInfo& f_info = m_vpx_mov_info->box_vpx_frame_info[m_vpx_mov_info->cur_mov_frame_idx];
+	if (vpx_codec_decode(&m_vpx_mov_info->vpx_ctx, m_vpx_mov_info->sp_mb_movie_body->get_buffer() + f_info.pos, f_info.len, NULL, 0))
+	{
+		gf_trace_codec_error(&m_vpx_mov_info->vpx_ctx, "ofxWebMPlayer::mf_set_frame(): Failed to decode frame");
+	}
+
+	if (m_vpx_mov_info->cur_mov_frame_idx == frame_idx)
+	{
+		mf_get_frame();
+	}
+
+	return time_s;
+}
+
+void ofxWebMPlayer::mf_update(u64 delta_mills)
+{
+	u32 frame_idx = 0;
+
+	m_vpx_mov_info->total_tick_mills += delta_mills;
+	f32 play_time_s = m_vpx_mov_info->total_tick_mills * 0.001f;
+
+	frame_idx = static_cast<u32>(play_time_s * m_vpx_mov_info->frame_rate);
+	if (frame_idx >= m_vpx_mov_info->frame_count)
+	{
+		if (m_is_loop)
+		{
+			m_vpx_mov_info->cur_mov_frame_idx = -1;
+			m_vpx_mov_info->total_tick_mills = m_vpx_mov_info->total_tick_mills - static_cast<u64>(m_vpx_mov_info->duration_s * 1000.f);
+		}
+		else
+		{
+			frame_idx = static_cast<u32>(m_vpx_mov_info->frame_count - 1);
+			m_is_playing = false;
+		}
+	}
+
+	if (m_vpx_mov_info->cur_mov_frame_idx == frame_idx)
 	{
 		m_is_frame_new = false;
 		return;
 	}
 
-	u32 prMoveFrameIdx = m_vpx_mov_info->curMovFrameIdx;
-	m_vpx_mov_info->curMovFrameIdx = frameIdx;
+	u32 pre_mov_frame_idx = m_vpx_mov_info->cur_mov_frame_idx;
+	m_vpx_mov_info->cur_mov_frame_idx = frame_idx;
 
 #if defined(USE_OFXWEBMPLAYER_QA_FEATURE)
 	u64 ms_pre2 = ofGetElapsedTimeMillis();
 
 #endif
 
-	for (u32 i = prMoveFrameIdx + 1; i <= (u32)m_vpx_mov_info->curMovFrameIdx; ++i)
+	for (u32 i = pre_mov_frame_idx + 1; i <= (u32)m_vpx_mov_info->cur_mov_frame_idx; ++i)
 	{
 		VpxFrameInfo& f_info = m_vpx_mov_info->box_vpx_frame_info[i];
 
@@ -657,7 +770,7 @@ void ofxWebMPlayer::update()
 
 		if (vpx_codec_decode(&m_vpx_mov_info->vpx_ctx, m_vpx_mov_info->sp_mb_movie_body->get_buffer() + f_info.pos, f_info.len, NULL, 0))
 		{
-			gf_trace_codec_error(&m_vpx_mov_info->vpx_ctx, "ofxWebMPlayer::update(): Failed to decode frame.");
+			gf_trace_codec_error(&m_vpx_mov_info->vpx_ctx, "ofxWebMPlayer::mf_update(): Failed to decode frame.");
 		}
 
 #if defined(USE_OFXWEBMPLAYER_QA_FEATURE)
@@ -691,6 +804,30 @@ void ofxWebMPlayer::update()
 	}
 
 #endif
+}
+
+void ofxWebMPlayer::forceUpdate()
+{
+	mf_update(0.f);
+}
+
+void ofxWebMPlayer::update()
+{
+	if (!m_is_playing)
+	{
+		return;
+	}
+
+	u64 cur_tick_millis = ofGetElapsedTimeMillis();
+	u64 delta_tick_millis = cur_tick_millis - m_vpx_mov_info->pre_tick_millis;
+	m_vpx_mov_info->pre_tick_millis = cur_tick_millis;
+
+	if (m_is_paused)
+	{
+		return;
+	}
+
+	mf_update(delta_tick_millis);
 }
 
 //////////////////////////////////////
@@ -734,6 +871,17 @@ ofPixels const& ofxWebMPlayer::getPixels() const
 }
 
 ////////////////////////////////////////////////////////
+
+bool ofxWebMPlayer::getKeyFrames(std::vector<unsigned int>* p_out)
+{
+	if (!p_out)
+	{
+		return false;
+	}
+
+	*p_out = m_vpx_mov_info->box_key;
+	return true;
+}
 
 //u32 ofxWebMPlayer::getMsPerFrame()
 //{
