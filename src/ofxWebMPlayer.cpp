@@ -8,7 +8,7 @@
 void gf_trace_codec_error(vpx_codec_ctx_t *ctx, char const* cstr_prefix)
 {
 	char const* cstr_detail = vpx_codec_error_detail(ctx);
-	ofLogError("%s\nvpx_error- %s\n%s", cstr_prefix, vpx_codec_error(ctx), cstr_detail ? cstr_detail : "");
+	ofLogError("ofxWebMPlayer", "%s\nvpx_error- %s\n%s", cstr_prefix, vpx_codec_error(ctx), cstr_detail ? cstr_detail : "");
 }
 
 typedef struct VpxFrameInfo
@@ -102,7 +102,7 @@ bool ofxWebMPlayer::load(string name)
 		s64 ret = ebml_header.Parse(&reader, pos);
 		if (ret < 0)
 		{
-			ofLogError("ofxWebMPlayer::load(): This file [%s] is not WebM format", name.c_str());
+			ofLogError("ofxWebMPlayer", "ofxWebMPlayer::load(): This file [%s] is not WebM format", name.c_str());
 			break;
 		}
 
@@ -110,14 +110,14 @@ bool ofxWebMPlayer::load(string name)
 		ret = mkvparser::Segment::CreateInstance(&reader, pos, p_segment);
 		if (ret < 0)
 		{
-			ofLogError("ofxWebMPlayer::load(): WebM Segment::CreateInstance() failed.");
+			ofLogError("ofxWebMPlayer", "load(): WebM Segment::CreateInstance() failed.");
 			break;
 		}
 
 		ret = p_segment->Load();
 		if (ret < 0)
 		{
-			ofLogError("ofxWebMPlayer::load(): WebM Segment::Load() failed.");
+			ofLogError("ofxWebMPlayer", "load(): WebM Segment::Load() failed.");
 			break;
 		}
 
@@ -151,7 +151,7 @@ bool ofxWebMPlayer::load(string name)
 				}
 				else
 				{
-					ofLogError("ofxWebMPlayer::load(): This codec [%s] is not support.", codec_id);
+					ofLogError("ofxWebMPlayer", "load(): This codec [%s] is not support.", codec_id);
 					continue;
 				}
 
@@ -170,7 +170,7 @@ bool ofxWebMPlayer::load(string name)
 
 				m_vpx_mov_info->vpx_if = p_iface;
 
-				ofLogNotice("ofxWebMPlayer::load(): Now vpx codec is using %s.", vpx_codec_iface_name(m_vpx_mov_info->vpx_if));
+				ofLogNotice("ofxWebMPlayer", "load(): Now vpx codec is using %s.", vpx_codec_iface_name(m_vpx_mov_info->vpx_if));
 
 				mkvparser::VideoTrack const* const pVideoTrack = static_cast<const mkvparser::VideoTrack*>(p_track);
 
@@ -257,7 +257,7 @@ bool ofxWebMPlayer::load(string name)
 
 
 			case mkvparser::Track::kAudio:
-				ofLogError("ofxWebMPlayer::load(): Audio track is not implemented yet.");
+				ofLogError("ofxWebMPlayer", "load(): Audio track is not implemented yet.");
 				{
 					//mkvparser::AudioTrack const* const pAudioTrack = static_cast<mkvparser::AudioTrack const*>(p_track);
 					//
@@ -267,11 +267,11 @@ bool ofxWebMPlayer::load(string name)
 				break;
 
 			case mkvparser::Track::kSubtitle:
-				ofLogError("ofxWebMPlayer::load(): Subtitle track is not implemented yet.");
+				ofLogError("ofxWebMPlayer", "load(): Subtitle track is not implemented yet.");
 				break;
 
 			case mkvparser::Track::kMetadata:
-				ofLogError("ofxWebMPlayer::load(): Metadata track is not implemented yet.");
+				ofLogError("ofxWebMPlayer", "load(): Metadata track is not implemented yet.");
 				break;
 			}
 		}
@@ -285,7 +285,7 @@ bool ofxWebMPlayer::load(string name)
 		ret = vpx_codec_decode(&m_vpx_mov_info->vpx_ctx, m_vpx_mov_info->sp_mb_movie_body->get_buffer() + f_info.pos, f_info.len, NULL, 0);
 		if (ret < 0)
 		{
-			gf_trace_codec_error(&m_vpx_mov_info->vpx_ctx, "ofxWebMPlayer::load(): Failed to decode frame.");
+			gf_trace_codec_error(&m_vpx_mov_info->vpx_ctx, "load(): Failed to decode frame.");
 			break;
 		}
 
@@ -294,7 +294,7 @@ bool ofxWebMPlayer::load(string name)
 
 		if (!vpxImage)
 		{
-			ofLogError("ofxWebMPlayer::load(): vpx_codec_get_frame() failed.");
+			ofLogError("ofxWebMPlayer", "load(): vpx_codec_get_frame() failed.");
 			break;
 		}
 
@@ -350,12 +350,19 @@ bool ofxWebMPlayer::load(string name)
 		char const* src_vert_shader = g_cstr_vert_shader;
 		char const* src_frag_shader = NULL;
 
+		GLenum error = glGetError();
+		//Clear gl error;
+		if (error != GL_NO_ERROR)
+		{
+			ofLogWarning("ofxWebMPlayer", "load(): Clear GL Error(%d): someone is bad...", error);
+		}
+		
 		memset(m_gl_tex2d_planes, 0x00, sizeof(m_gl_tex2d_planes));
 		glGenTextures(4, m_gl_tex2d_planes);
-		glEnable(GL_TEXTURE_2D);
+		//glEnable(GL_TEXTURE_2D);
 
 		GLint internalformat;
-		GLenum format;
+		GLenum format = GL_NO_ERROR;
 
 		if (vpxImage->fmt & VPX_IMG_FMT_PLANAR)
 		{
@@ -389,13 +396,14 @@ bool ofxWebMPlayer::load(string name)
 
 		for (u32 i = 0; i < m_vpx_mov_info->planes_count; ++i)
 		{
+			//glActiveTexture(GL_TEXTURE0);
 			glBindTexture(GL_TEXTURE_2D, m_gl_tex2d_planes[i]);
 			glTexImage2D(GL_TEXTURE_2D, 0, internalformat, m_vpx_mov_info->planes_width[i], m_vpx_mov_info->planes_height[i], 0, format, GL_UNSIGNED_BYTE, vpxImage->planes[i]);
 
-			GLenum error = glGetError();
+			error = glGetError();
 			if (error != GL_NO_ERROR)
 			{
-				printf("FFFFFFFFFFFFFF\n");
+				ofLogWarning("ofxWebMPlayer", "glGetError(%d)", error);
 			}
 
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -404,7 +412,7 @@ bool ofxWebMPlayer::load(string name)
 		}
 
 		glBindTexture(GL_TEXTURE_2D, 0);
-		glDisable(GL_TEXTURE_2D);
+		//glDisable(GL_TEXTURE_2D);
 
 		ofFbo::Settings settings;
 		settings.width = vpxImage->d_w;
@@ -691,7 +699,7 @@ float ofxWebMPlayer::mf_set_key_frame(u32 frame_idx)
 	{
 		if (vpx_codec_destroy(&m_vpx_mov_info->vpx_ctx))
 		{
-			gf_trace_codec_error(&m_vpx_mov_info->vpx_ctx, "ofxWebMPlayer::mf_set_frame(): Failed to destroy the decoder of VPX");
+			gf_trace_codec_error(&m_vpx_mov_info->vpx_ctx, "mf_set_frame(): Failed to destroy the decoder of VPX");
 			return -1.f;
 		}
 		else
@@ -699,7 +707,7 @@ float ofxWebMPlayer::mf_set_key_frame(u32 frame_idx)
 			// Initialize codec
 			if (vpx_codec_dec_init(&m_vpx_mov_info->vpx_ctx, m_vpx_mov_info->vpx_if, &m_vpx_mov_info->vpx_cfg, m_vpx_mov_info->vpx_flags))
 			{
-				gf_trace_codec_error(&m_vpx_mov_info->vpx_ctx, "ofxWebMPlayer::mf_set_frame(): Failed to initialize the decoder of VPX");
+				gf_trace_codec_error(&m_vpx_mov_info->vpx_ctx, "mf_set_frame(): Failed to initialize the decoder of VPX");
 				return -1.f;
 			}
 		}
@@ -712,7 +720,7 @@ float ofxWebMPlayer::mf_set_key_frame(u32 frame_idx)
 	VpxFrameInfo& f_info = m_vpx_mov_info->box_vpx_frame_info[m_vpx_mov_info->cur_mov_frame_idx];
 	if (vpx_codec_decode(&m_vpx_mov_info->vpx_ctx, m_vpx_mov_info->sp_mb_movie_body->get_buffer() + f_info.pos, f_info.len, NULL, 0))
 	{
-		gf_trace_codec_error(&m_vpx_mov_info->vpx_ctx, "ofxWebMPlayer::mf_set_frame(): Failed to decode frame");
+		gf_trace_codec_error(&m_vpx_mov_info->vpx_ctx, "mf_set_frame(): Failed to decode frame");
 	}
 
 	if (m_vpx_mov_info->cur_mov_frame_idx == frame_idx)
@@ -735,6 +743,7 @@ void ofxWebMPlayer::mf_update(u64 delta_mills)
 	{
 		if (m_is_loop)
 		{
+			frame_idx %= m_vpx_mov_info->frame_count;
 			m_vpx_mov_info->cur_mov_frame_idx = -1;
 			m_vpx_mov_info->total_tick_mills = m_vpx_mov_info->total_tick_mills - static_cast<u64>(m_vpx_mov_info->duration_s * 1000.f);
 		}
@@ -770,7 +779,7 @@ void ofxWebMPlayer::mf_update(u64 delta_mills)
 
 		if (vpx_codec_decode(&m_vpx_mov_info->vpx_ctx, m_vpx_mov_info->sp_mb_movie_body->get_buffer() + f_info.pos, f_info.len, NULL, 0))
 		{
-			gf_trace_codec_error(&m_vpx_mov_info->vpx_ctx, "ofxWebMPlayer::mf_update(): Failed to decode frame.");
+			gf_trace_codec_error(&m_vpx_mov_info->vpx_ctx, "mf_update(): Failed to decode frame.");
 		}
 
 #if defined(USE_OFXWEBMPLAYER_QA_FEATURE)
@@ -892,7 +901,7 @@ void ofxWebMPlayer::mf_convert_vpx_img_to_texture(void* vi)
 {
 	vpx_image_t* vpxImage = (vpx_image_t*)vi;
 
-	glEnable(GL_TEXTURE_2D);
+	//glEnable(GL_TEXTURE_2D);
 	for (u32 i = 0; i < m_vpx_mov_info->planes_count; ++i)
 	{
 		if (!vpxImage->planes[i])
@@ -904,7 +913,7 @@ void ofxWebMPlayer::mf_convert_vpx_img_to_texture(void* vi)
 		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_vpx_mov_info->planes_width[i], m_vpx_mov_info->planes_height[i], GL_RED, GL_UNSIGNED_BYTE, vpxImage->planes[i]);
 	}
 	glBindTexture(GL_TEXTURE_2D, 0);
-	glDisable(GL_TEXTURE_2D);
+	//glDisable(GL_TEXTURE_2D);
 
 	//ofPushStyle();
 
