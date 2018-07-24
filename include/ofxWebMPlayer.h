@@ -2,10 +2,11 @@
 #define INCLUDE_OF_ADDONS_OFXWEBMPLAYER_OFXWEBMPLAYER_H_
 
 #include <ofMain.h>
+#include <atomic>
 
 #define USE_OFXWEBMPLAYER_QA_FEATURE
 
-class ofxWebMPlayer: public ofBaseVideoPlayer
+class ofxWebMPlayer: public ofBaseVideoPlayer, public ofBaseSoundOutput
 {
 public:
 #if defined(USE_OFXWEBMPLAYER_QA_FEATURE)
@@ -24,6 +25,9 @@ public:
 
 	ofxWebMPlayer();
 	~ofxWebMPlayer();
+
+	//default is false, because it has problem (it's no sync)
+	void enableAudio(bool yes);
 
 	//ofBaseVideoPlayer -------------------------------------
 	bool load(std::string name)						override;
@@ -84,7 +88,16 @@ public:
 	/// \returns a const reference the underlying ofPixels.
 	ofPixels const& getPixels() const				override;
 
-	//-------------------------------------------------------
+	//ofBaseSoundOutput -------------------------------------
+	//void audioOut(ofSoundBuffer& buffer)			override;
+	void audioOut(float* output, int bufferSize, int nChannels) override;
+	/// \deprecated This legacy method is deprecated and will be removed.
+	/// Use void audioOut(ofSoundBuffer& buffer) instead.
+	//void audioOut(float * output, int bufferSize, int nChannels, int deviceID, long unsigned long tickCount) override;
+
+	/// \deprecated This legacy method is deprecated and will be removed.
+	/// Use void audioOut(ofSoundBuffer& buffer) instead.
+	// void audioOut(float * output, int bufferSize, int nChannels) override;
 
 	bool getKeyFrames(std::vector<unsigned int>*);
 	void forceUpdate();
@@ -97,19 +110,23 @@ public:
 
 private:
 	struct VpxMovInfo;
-	enum { MaxMovInfoInsSize = 256 };
+	enum { MaxMovInfoInsSize = 512 };
 
-	VpxMovInfo*	m_vpx_mov_info;
-	ofPixels	m_pixels;
-	GLuint		m_gl_tex2d_planes[4];
-	ofVboMesh	m_mesh_quard;
-	ofShader	m_shader;
-	ofFbo		m_fbo;
-	bool		m_is_paused;
-	bool		m_is_playing;
-	bool		m_is_frame_new;
-	bool		m_is_loop;
-	char		m_mov_info_instance[MaxMovInfoInsSize];
+	VpxMovInfo*		m_vpx_mov_info;
+	ofPixels		m_pixels;
+	GLuint			m_gl_tex2d_planes[4];
+	ofVboMesh		m_mesh_quard;
+	ofShader		m_shader;
+	ofFbo			m_fbo;
+	ofSoundStream	m_sound_stream;
+
+	std::atomic<bool>	m_is_paused;
+	bool				m_is_playing;
+	bool				m_is_frame_new;
+	bool				m_is_loop;
+	bool				m_enable_audio;
+	float				m_position;
+	char				m_mov_info_instance[MaxMovInfoInsSize];
 
 #if defined(USE_OFXWEBMPLAYER_QA_FEATURE)
 	QaInfo		ms_info;

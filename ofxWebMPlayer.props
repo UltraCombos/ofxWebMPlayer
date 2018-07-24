@@ -3,12 +3,12 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>..\..\..\addons\ofxWebMPlayer\src;..\..\..\addons\ofxWebMPlayer\include;..\..\..\addons\ofxWebMPlayer\libs\libvpx\include;..\..\..\addons\ofxWebMPlayer\libs\libwebm\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\..\addons\ofxWebMPlayer\src;..\..\..\addons\ofxWebMPlayer\include;..\..\..\addons\ofxWebMPlayer\libs\libvpx\include;..\..\..\addons\ofxWebMPlayer\libs\libwebm\include;..\..\..\addons\ofxWebMPlayer\libs\libogg\include;..\..\..\addons\ofxWebMPlayer\libs\libvorbis\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
-      <AdditionalLibraryDirectories>..\..\..\addons\ofxWebMPlayer\libs\libwebm\lib\vs\$(Platform)\$(Configuration);..\..\..\addons\ofxWebMPlayer\libs\libvpx\lib\vs\$(Platform);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>libwebm.lib;mkvmuxer.lib;mkvparser.lib;webm_parser.lib;vpxmd.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>..\..\..\addons\ofxWebMPlayer\libs\libwebm\lib\vs2015\$(Platform)\$(Configuration);..\..\..\addons\ofxWebMPlayer\libs\libvpx\lib\vs2015\$(Platform);..\..\..\addons\ofxWebMPlayer\libs\libogg\lib\vs2015\$(Platform)\$(Configuration);..\..\..\addons\ofxWebMPlayer\libs\libvorbis\lib\vs2015\$(Platform)\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>libwebm.lib;mkvmuxer.lib;mkvparser.lib;webm_parser.lib;vpxmd.lib;libogg_static.lib;libvorbis_static.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup />
